@@ -1,5 +1,7 @@
 # Tmusic
 
+![logo](Logo.jpeg)
+
 A compact local music player built with Python, Tkinter, and pygame. It is
 designed for Linux desktops such as Arch Linux with Hyprland: the interface
 uses a dark, keyboard-friendly layout, and the optional MPRIS service exposes
