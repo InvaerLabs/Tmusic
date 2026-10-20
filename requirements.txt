@@ -1,0 +1,12 @@
+# GUI & Image Processing
+Pillow>=10.0.0
+
+# YouTube Media Downloader
+yt-dlp>=2023.0.0
+
+# Audio playback (যদি পাইথনের ভেতরেই pygame বা অন্য কোনো অডিও লাইব্রেরি ব্যবহার করেন)
+pygame>=2.5.0
+mutagen>=1.47.0
+
+# Packaging & Distribution
+pyinstaller>=5.0.0
