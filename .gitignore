@@ -4,4 +4,7 @@ __pycache__/
 .pytest_cache/
 downloads/
 *.desktop
-tests/
+build/
+dist/
+*spec
+*.jpeg

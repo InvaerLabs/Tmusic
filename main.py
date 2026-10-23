@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import queue
+import platform
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -9,8 +10,23 @@ from tkinter import filedialog, messagebox, ttk
 import pygame
 
 from downloader import Downloader
-from preferences import load_download_directory, save_download_directory
-from player import LyricLine, MusicPlayer, discover_tracks, format_time
+from preferences import (
+    load_download_directory,
+    load_theme_preference,
+    save_download_directory,
+    save_theme_preference,
+    system_theme,
+)
+from player import (
+    LyricLine,
+    MusicPlayer,
+    discover_tracks,
+    format_lrc,
+    format_time,
+    read_track_lyrics,
+    save_mp3_metadata,
+    waveform_peaks,
+)
 
 
 BG = "#0d1010"
@@ -62,15 +78,34 @@ class TmusicApp:
         self._mpris_commands: queue.SimpleQueue[tuple[str, object | None]] = queue.SimpleQueue()
         self._download_active = False
         self._displayed_track: Path | None = None
+        self._waveform_messages: queue.SimpleQueue[tuple[Path, object]] = queue.SimpleQueue()
+        self._waveform_track: Path | None = None
+        self._waveform_peaks: list[float] = []
+        self._waveform_requested: set[Path] = set()
+        self.lyrics_panel: tk.Frame | None = None
+        self.lyrics_view: tk.Text | None = None
+        self._lyrics_visible = False
+        try:
+            self.theme_preference = load_theme_preference()
+        except RuntimeError as error:
+            self.theme_preference = "system"
+            self._settings_error = self._settings_error or str(error)
+        self.theme_name = (
+            system_theme() if self.theme_preference == "system" else self.theme_preference
+        )
+        self.theme_colors = self._theme_palette(self.theme_name)
 
         self._build_ui()
+        self._apply_theme()
         self.refresh_library()
         self._bind_shortcuts()
-        self._start_mpris()
+        if platform.system() == "Linux":
+            self._start_mpris()
         self._tick()
         self.root.protocol("WM_DELETE_WINDOW", self.close)
 
     def _build_ui(self) -> None:
+        self.root.title("Tmusic 2.0 — Local Player")
         self.root.grid_rowconfigure(1, weight=1)
         self.root.grid_columnconfigure(0, weight=1)
 
@@ -90,6 +125,10 @@ class TmusicApp:
             font=("TkDefaultFont", 9, "bold"),
         )
         self.header_status.grid(row=0, column=2, sticky="e")
+        self.theme_button = self._button(
+            header, self._theme_button_label(), self.toggle_theme, subtle=True
+        )
+        self.theme_button.grid(row=0, column=3, sticky="e", padx=(14, 0))
 
         body = tk.Frame(self.root, bg=BG)
         body.grid(row=1, column=0, sticky="nsew", padx=30, pady=(0, 18))
@@ -173,6 +212,9 @@ class TmusicApp:
         self.track_list.configure(yscrollcommand=scrollbar.set)
         self.track_list.bind("<Double-Button-1>", self._play_selection)
         self.track_list.bind("<Return>", self._play_selection)
+        self.track_list.bind("<Button-3>", self._show_track_menu)
+        if platform.system() == "Darwin":
+            self.track_list.bind("<Control-Button-1>", self._show_track_menu)
 
         self.library_hint = tk.Label(
             self.library_page,
@@ -351,6 +393,7 @@ class TmusicApp:
         artwork_and_lyrics = tk.Frame(content, bg=BG)
         artwork_and_lyrics.grid(row=3, column=0, sticky="nsew")
         artwork_and_lyrics.grid_rowconfigure(1, weight=1)
+        artwork_and_lyrics.grid_rowconfigure(3, weight=1)
         artwork_and_lyrics.grid_columnconfigure(0, weight=1)
 
         self.cover = tk.Canvas(
@@ -360,59 +403,56 @@ class TmusicApp:
         self.cover.grid(row=0, column=0, sticky="ew", pady=(0, 14))
         self.cover.bind("<Configure>", self._draw_record)
 
-        lyric_panel = tk.Frame(artwork_and_lyrics, bg=PANEL, padx=20, pady=16)
-        lyric_panel.grid(row=1, column=0, sticky="nsew")
-        lyric_panel.grid_rowconfigure(1, weight=1)
-        lyric_panel.grid_columnconfigure(0, weight=1)
-        lyric_head = tk.Frame(lyric_panel, bg=PANEL)
-        lyric_head.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        lyric_head.grid_columnconfigure(0, weight=1)
-        tk.Label(
-            lyric_head, text="LYRICS", bg=PANEL, fg=TEXT,
-            font=("TkDefaultFont", 10, "bold"),
-        ).grid(row=0, column=0, sticky="w")
-        self.lyric_source = tk.Label(
-            lyric_head, text="SYNCED LRC", bg=PANEL, fg=MUTED,
-            font=("TkDefaultFont", 8, "bold"),
+        self.waveform = tk.Canvas(
+            artwork_and_lyrics, height=112, bg=PANEL,
+            highlightthickness=0, borderwidth=0,
         )
-        self.lyric_source.grid(row=0, column=1, sticky="e")
+        self.waveform.grid(row=1, column=0, sticky="ew")
+        self.waveform.bind("<Configure>", self._draw_waveform)
+        self.waveform.bind("<Button-1>", self._seek_to_waveform)
+        self.current_lyric = tk.Label(
+            artwork_and_lyrics,
+            text="Select a track to view lyrics",
+            bg=BG, fg=MUTED, anchor="w", font=("TkDefaultFont", 10, "italic"),
+        )
+        self.current_lyric.grid(row=2, column=0, sticky="ew", pady=(10, 8))
 
-        lyrics_frame = tk.Frame(lyric_panel, bg=PANEL)
+        self.lyrics_panel = tk.Frame(artwork_and_lyrics, bg=PANEL, padx=14, pady=12)
+        self.lyrics_panel.grid(row=3, column=0, sticky="nsew")
+        self.lyrics_panel.grid_columnconfigure(0, weight=1)
+        self.lyrics_panel.grid_rowconfigure(1, weight=1)
+        self.lyrics_title = tk.Label(
+            self.lyrics_panel, text="LYRICS", bg=PANEL, fg=ACCENT,
+            anchor="w", font=("TkDefaultFont", 9, "bold"),
+        )
+        self.lyrics_title.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        lyrics_frame = tk.Frame(self.lyrics_panel, bg=PANEL)
         lyrics_frame.grid(row=1, column=0, sticky="nsew")
-        lyrics_frame.grid_rowconfigure(0, weight=1)
         lyrics_frame.grid_columnconfigure(0, weight=1)
+        lyrics_frame.grid_rowconfigure(0, weight=1)
         self.lyrics_view = tk.Text(
-            lyrics_frame,
-            bg=PANEL,
-            fg=MUTED,
-            insertbackground=ACCENT,
-            selectbackground="#33402c",
-            wrap="word",
-            borderwidth=0,
-            highlightthickness=0,
-            font=("TkDefaultFont", 12),
-            spacing1=5,
-            spacing3=5,
-            padx=2,
-            pady=4,
-            state="disabled",
+            lyrics_frame, height=6, bg=PANEL, fg=MUTED, insertbackground=ACCENT,
+            selectbackground="#33402c", wrap="word", borderwidth=0,
+            highlightthickness=0, font=("TkDefaultFont", 12),
+            spacing1=5, spacing3=5, padx=8, pady=8, state="disabled",
         )
         self.lyrics_view.grid(row=0, column=0, sticky="nsew")
-        lyric_scroll = tk.Scrollbar(
-            lyrics_frame, orient="vertical", command=self.lyrics_view.yview,
-            bg=PANEL_LIGHT, troughcolor=PANEL, relief="flat", borderwidth=0,
+        scrollbar = tk.Scrollbar(
+            lyrics_frame, orient="vertical", command=self.lyrics_view.yview
         )
-        lyric_scroll.grid(row=0, column=1, sticky="ns")
-        self.lyrics_view.configure(yscrollcommand=lyric_scroll.set)
-        self.lyrics_view.tag_configure("active", foreground=ACCENT, font=("TkDefaultFont", 12, "bold"))
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        self.lyrics_view.configure(yscrollcommand=scrollbar.set)
+        self.lyrics_view.tag_configure(
+            "active", foreground=ACCENT, font=("TkDefaultFont", 12, "bold")
+        )
         self.lyrics_view.tag_configure("line", foreground=MUTED)
         self.lyrics_view.bind("<Button-1>", self._seek_to_lyric)
-
-        self.current_lyric = tk.Label(
-            lyric_panel, text="♪  Open a track to see its synced lyrics",
-            bg=PANEL, fg=MUTED, anchor="w", font=("TkDefaultFont", 9, "italic"),
+        self.lyrics_action = self._button(
+            self.lyrics_panel, "＋  Add or edit lyrics",
+            self._edit_current_lyrics, subtle=True,
         )
-        self.current_lyric.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+        self.lyrics_action.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        self.lyrics_panel.grid_remove()
 
     def _build_transport(self) -> None:
         transport = tk.Frame(self.root, bg=PANEL, padx=28, pady=15)
@@ -421,7 +461,10 @@ class TmusicApp:
 
         left = tk.Frame(transport, bg=PANEL)
         left.grid(row=0, column=0, sticky="w")
-        self._button(left, "＋  LRC", self.open_lyrics, subtle=True).pack(side="left")
+        self.lyric_button = self._button(
+            left, "Lyric", self.toggle_lyrics_panel, subtle=True
+        )
+        self.lyric_button.pack(side="left")
 
         center = tk.Frame(transport, bg=PANEL)
         center.grid(row=0, column=1, sticky="ew", padx=34)
@@ -554,6 +597,190 @@ class TmusicApp:
             self.music_folders.append(folder)
         self.refresh_library()
 
+    def _show_track_menu(self, event: tk.Event) -> str:
+        index = self.track_list.nearest(event.y)
+        bounds = self.track_list.bbox(index)
+        if bounds is None or not bounds[1] <= event.y <= bounds[1] + bounds[3]:
+            return "break"
+        self.track_list.selection_clear(0, tk.END)
+        self.track_list.selection_set(index)
+        self.track_list.activate(index)
+        menu = tk.Menu(self.root, tearoff=False)
+        menu.add_command(
+            label="Edit",
+            command=lambda selected_index=index: self.edit_track(
+                self.player.tracks[selected_index]
+            ),
+        )
+        menu.tk_popup(event.x_root, event.y_root)
+        return "break"
+
+    def edit_track(self, path: Path) -> None:
+        if path.suffix.casefold() != ".mp3":
+            messagebox.showinfo(
+                "Edit track",
+                "Tag and embedded lyric editing is currently available for MP3 files.",
+                parent=self.root,
+            )
+            return
+
+        try:
+            from mutagen import File as MutagenFile
+
+            metadata = MutagenFile(path, easy=True)
+            tags = (
+                metadata.tags
+                if metadata is not None and metadata.tags is not None
+                else {}
+            )
+            initial_title = (tags.get("title") or [path.stem])[0]
+            initial_artist = (tags.get("artist") or [""])[0]
+            lyrics, synchronized = read_track_lyrics(path)
+            lyrics_text = (
+                format_lrc(lyrics)
+                if synchronized
+                else "\n".join(line.text for line in lyrics)
+            )
+        except (OSError, RuntimeError, AttributeError, TypeError) as error:
+            messagebox.showerror("Could not read track", str(error), parent=self.root)
+            return
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Edit track — {path.name}")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.configure(bg=BG)
+        dialog.geometry("620x560")
+        dialog.minsize(480, 420)
+        dialog.grid_columnconfigure(0, weight=1)
+        dialog.grid_rowconfigure(5, weight=1)
+
+        tk.Label(dialog, text="FILE NAME / TITLE", bg=BG, fg=MUTED,
+                 font=("TkDefaultFont", 9, "bold")).grid(
+            row=0, column=0, sticky="w", padx=22, pady=(20, 6)
+        )
+        title_entry = tk.Entry(
+            dialog, bg=PANEL, fg=TEXT, insertbackground=TEXT, relief="flat",
+            font=("TkDefaultFont", 11), borderwidth=0,
+        )
+        title_entry.grid(row=1, column=0, sticky="ew", padx=22, ipady=9)
+        title_entry.insert(0, initial_title)
+
+        tk.Label(dialog, text="ARTIST", bg=BG, fg=MUTED,
+                 font=("TkDefaultFont", 9, "bold")).grid(
+            row=2, column=0, sticky="w", padx=22, pady=(14, 6)
+        )
+        artist_entry = tk.Entry(
+            dialog, bg=PANEL, fg=TEXT, insertbackground=TEXT, relief="flat",
+            font=("TkDefaultFont", 11), borderwidth=0,
+        )
+        artist_entry.grid(row=3, column=0, sticky="ew", padx=22, ipady=9)
+        artist_entry.insert(0, initial_artist)
+
+        lyrics_header = tk.Frame(dialog, bg=BG)
+        lyrics_header.grid(row=4, column=0, sticky="ew", padx=22, pady=(16, 6))
+        lyrics_header.grid_columnconfigure(0, weight=1)
+        tk.Label(
+            lyrics_header, text="LYRICS (.LRC FORMAT OR PLAIN TEXT)",
+            bg=BG, fg=MUTED, font=("TkDefaultFont", 9, "bold"),
+        ).grid(row=0, column=0, sticky="w")
+        self._button(
+            lyrics_header, "Open .lrc", lambda: self._insert_lrc_file(dialog, lyrics_editor),
+            subtle=True,
+        ).grid(row=0, column=1, sticky="e")
+
+        lyrics_frame = tk.Frame(dialog, bg=PANEL)
+        lyrics_frame.grid(row=5, column=0, sticky="nsew", padx=22)
+        lyrics_frame.grid_rowconfigure(0, weight=1)
+        lyrics_frame.grid_columnconfigure(0, weight=1)
+        lyrics_editor = tk.Text(
+            lyrics_frame, bg=PANEL, fg=TEXT, insertbackground=TEXT,
+            selectbackground="#33402c", wrap="word", relief="flat",
+            borderwidth=0, font=("TkFixedFont", 10), padx=10, pady=10,
+        )
+        lyrics_editor.grid(row=0, column=0, sticky="nsew")
+        lyrics_editor.insert("1.0", lyrics_text)
+        editor_scroll = tk.Scrollbar(
+            lyrics_frame, orient="vertical", command=lyrics_editor.yview
+        )
+        editor_scroll.grid(row=0, column=1, sticky="ns")
+        lyrics_editor.configure(yscrollcommand=editor_scroll.set)
+
+        actions = tk.Frame(dialog, bg=BG)
+        actions.grid(row=6, column=0, sticky="e", padx=22, pady=18)
+        self._button(actions, "Cancel", dialog.destroy, subtle=True).pack(side="right")
+        self._button(
+            actions,
+            "Save changes",
+            lambda: self._save_track_edits(
+                dialog, path, title_entry.get(), artist_entry.get(),
+                lyrics_editor.get("1.0", "end-1c"),
+            ),
+            primary=True,
+        ).pack(side="right", padx=(0, 10))
+        title_entry.focus_set()
+
+    def _insert_lrc_file(self, dialog: tk.Toplevel, editor: tk.Text) -> None:
+        selected = filedialog.askopenfilename(
+            parent=dialog,
+            title="Attach lyrics",
+            filetypes=[("LRC lyrics", "*.lrc"), ("Text files", "*.txt"), ("All files", "*.*")],
+        )
+        if not selected:
+            return
+        try:
+            content = Path(selected).read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeError) as error:
+            messagebox.showerror("Could not open lyrics", str(error), parent=dialog)
+            return
+        editor.delete("1.0", tk.END)
+        editor.insert("1.0", content)
+
+    def _save_track_edits(
+        self,
+        dialog: tk.Toplevel,
+        path: Path,
+        title: str,
+        artist: str,
+        lyrics_text: str,
+    ) -> None:
+        is_current = self.player.current_track == path
+        was_playing = self.player.is_playing
+        if is_current:
+            self.player.stop()
+            try:
+                pygame.mixer.music.unload()
+            except pygame.error:
+                pass
+        try:
+            destination = save_mp3_metadata(
+                path, title=title, artist=artist, lrc_text=lyrics_text
+            )
+        except (OSError, RuntimeError, ValueError) as error:
+            if is_current:
+                self._reload_after_edit(path, was_playing)
+            messagebox.showerror("Could not save track", str(error), parent=dialog)
+            return
+
+        dialog.destroy()
+        self.refresh_library()
+        if is_current:
+            self._reload_after_edit(destination, was_playing)
+        self._set_status(f"Updated {destination.name}")
+
+    def _reload_after_edit(self, path: Path, was_playing: bool) -> None:
+        try:
+            index = self.player.tracks.index(path)
+            self.player.play_index(index)
+            if not was_playing:
+                self.player.pause()
+        except (ValueError, pygame.error, OSError, RuntimeError) as error:
+            self._set_status(f"Track metadata saved, but playback could not resume: {error}", error=True)
+        self._displayed_track = None
+        self._sync_displayed_track()
+        self._render_lyrics()
+        self._update_play_button()
+
     def _play_selection(self, _event: tk.Event | None = None) -> None:
         selection = self.track_list.curselection()
         if selection:
@@ -565,16 +792,9 @@ class TmusicApp:
         except (pygame.error, OSError, RuntimeError, ValueError, IndexError) as error:
             self._set_status(f"Could not play track: {error}", error=True)
             return
-        self.track_list.selection_clear(0, tk.END)
-        self.track_list.selection_set(index)
-        self.track_list.see(index)
         track = self.player.current_track
-        if track is not None:
-            self.track_title.configure(text=track.stem)
-            self.track_subtitle.configure(text=str(track.parent))
-        self._lyrics = self.player.lyrics
-        self._render_lyrics()
-        self._last_lyric_index = None
+        self._displayed_track = None
+        self._sync_displayed_track()
         self._set_status(f"Playing {track.name if track else 'track'}")
         self._update_play_button()
 
@@ -600,15 +820,8 @@ class TmusicApp:
         except (pygame.error, OSError, RuntimeError, ValueError, IndexError) as error:
             self._set_status(f"Could not change track: {error}", error=True)
             return
-        if self.player.current_index is not None:
-            self.track_list.selection_clear(0, tk.END)
-            self.track_list.selection_set(self.player.current_index)
-            self.track_list.see(self.player.current_index)
-            self.track_title.configure(text=self.player.current_track.stem)
-            self.track_subtitle.configure(text=str(self.player.current_track.parent))
-            self._lyrics = self.player.lyrics
-            self._render_lyrics()
-            self._last_lyric_index = None
+        self._displayed_track = None
+        self._sync_displayed_track()
         self._update_play_button()
 
     def toggle_shuffle(self) -> None:
@@ -631,48 +844,77 @@ class TmusicApp:
         )
         self._set_status(f"Repeat {self.repeat_mode}")
 
-    def open_lyrics(self) -> None:
-        if self.player.current_track is None:
-            messagebox.showinfo("Open lyrics", "Select a track before loading its lyrics.", parent=self.root)
+    def toggle_lyrics_panel(self) -> None:
+        if self.lyrics_panel is None:
             return
-        selected = filedialog.askopenfilename(
-            title="Open synced lyrics",
-            filetypes=[("LRC lyrics", "*.lrc"), ("All files", "*.*")],
-            initialdir=self.player.current_track.parent,
+        self._lyrics_visible = not self._lyrics_visible
+        if self._lyrics_visible:
+            self.lyrics_panel.grid()
+        else:
+            self.lyrics_panel.grid_remove()
+        self.lyric_button.configure(
+            fg=ACCENT if self._lyrics_visible else TEXT,
+            bg="#29351f" if self._lyrics_visible else PANEL_LIGHT,
         )
-        if not selected:
-            return
-        try:
-            self._lyrics = self.player.load_lyrics(Path(selected))
-        except OSError as error:
-            messagebox.showerror("Could not open lyrics", str(error), parent=self.root)
-            return
-        self.lyric_source.configure(text=Path(selected).name.upper())
         self._render_lyrics()
-        self._last_lyric_index = None
-        self._set_status(f"Loaded {len(self._lyrics)} lyric lines")
+
+    def _edit_current_lyrics(self) -> None:
+        if self.player.current_track is None:
+            messagebox.showinfo(
+                "Lyrics", "Choose an MP3 from your library before editing lyrics.",
+                parent=self.root,
+            )
+            return
+        self.edit_track(self.player.current_track)
 
     def _render_lyrics(self) -> None:
+        if self.lyrics_view is None or not self.lyrics_view.winfo_exists():
+            return
+
         self.lyrics_view.configure(state="normal")
         self.lyrics_view.delete("1.0", tk.END)
         if self._lyrics:
             for line in self._lyrics:
                 self.lyrics_view.insert(tk.END, f"{line.text or '♪'}\n", "line")
-            self.lyric_source.configure(text="SYNCED LRC")
-            self.current_lyric.configure(text="♪  Click a lyric line to jump to that moment")
-        else:
-            self.lyric_source.configure(text="NO LRC")
-            self.lyrics_view.insert(
-                tk.END,
-                "No synced lyrics found.\n\nKeep an .lrc file next to the audio file, "
-                "or use + LRC to open one.",
-                "line",
+            track = self.player.current_track
+            self.lyrics_title.configure(
+                text=(
+                    f"{track.stem if track else 'LYRICS'}  •  "
+                    f"{'SYNCED' if self.player.lyrics_synced else 'PLAIN'} LYRICS"
+                )
             )
-            self.current_lyric.configure(text="♪  Lyrics appear here in time with your music")
+        else:
+            if self.player.current_track is None:
+                prompt = "Choose a track to view its lyrics."
+                self.lyrics_title.configure(text="LYRICS")
+            else:
+                if self.player.current_track.suffix.casefold() == ".mp3":
+                    prompt = (
+                        "No embedded lyrics or matching .lrc file was found.\n\n"
+                        "Choose “Add or edit lyrics” to attach lyrics to the MP3."
+                    )
+                else:
+                    prompt = (
+                        "No matching .lrc file was found for this track.\n\n"
+                        "Choose an MP3 to add embedded lyrics."
+                    )
+                self.lyrics_title.configure(text="LYRICS NOT FOUND")
+            self.lyrics_view.insert(tk.END, prompt, "line")
         self.lyrics_view.configure(state="disabled")
+        if self._lyrics:
+            self._highlight_lyric(self.player.active_lyric_index())
+        elif self.player.current_track is None:
+            self.current_lyric.configure(text="Select a track to view lyrics")
+        else:
+            self.current_lyric.configure(text="No lyrics found for this track")
 
     def _seek_to_lyric(self, event: tk.Event) -> str:
-        if not self._lyrics or self.player.current_track is None:
+        if (
+            not self._lyrics
+            or not self.player.lyrics_synced
+            or self.player.current_track is None
+            or self.lyrics_view is None
+        ):
             return "break"
         index = int(self.lyrics_view.index(f"@{event.x},{event.y}").split(".")[0]) - 1
         if 0 <= index < len(self._lyrics):
@@ -732,6 +974,7 @@ class TmusicApp:
         if self._closing:
             return
         self._process_download_messages()
+        self._process_waveform_messages()
         if not self._process_mpris_commands():
             return
         try:
@@ -771,6 +1014,8 @@ class TmusicApp:
         if active_index != self._last_lyric_index:
             self._highlight_lyric(active_index)
             self._last_lyric_index = active_index
+        if self._waveform_track == self.player.current_track and self._waveform_peaks:
+            self._draw_waveform()
 
         if self.player.track_finished():
             if self.repeat_mode == "one":
@@ -880,6 +1125,9 @@ class TmusicApp:
             self._lyrics = []
             self._render_lyrics()
             self._draw_record()
+            self._waveform_track = None
+            self._waveform_peaks = []
+            self._draw_waveform()
             return
 
         metadata = self.player.track_metadata
@@ -897,18 +1145,105 @@ class TmusicApp:
         self._render_lyrics()
         self._last_lyric_index = None
         self._draw_record()
+        self._request_waveform(track)
+
+    def _request_waveform(self, track: Path) -> None:
+        if track == self._waveform_track and self._waveform_peaks:
+            return
+        if track in self._waveform_requested:
+            return
+        self._waveform_requested.add(track)
+
+        def load() -> None:
+            try:
+                peaks: object = waveform_peaks(track)
+            except RuntimeError as error:
+                peaks = error
+            self._waveform_messages.put((track, peaks))
+
+        threading.Thread(
+            target=load, name="tmusic-waveform", daemon=True
+        ).start()
+
+    def _process_waveform_messages(self) -> None:
+        while True:
+            try:
+                track, result = self._waveform_messages.get_nowait()
+            except queue.Empty:
+                return
+            self._waveform_requested.discard(track)
+            if track != self.player.current_track:
+                continue
+            if isinstance(result, RuntimeError):
+                self._set_status(str(result), error=True)
+                continue
+            if isinstance(result, list):
+                self._waveform_track = track
+                self._waveform_peaks = result
+                self._draw_waveform()
+
+    def _draw_waveform(self, _event: tk.Event | None = None) -> None:
+        if not hasattr(self, "waveform"):
+            return
+        self.waveform.delete("all")
+        width = max(1, self.waveform.winfo_width())
+        height = max(1, self.waveform.winfo_height())
+        center_y = height / 2
+        peaks = self._waveform_peaks if self._waveform_track == self.player.current_track else []
+        if not peaks:
+            self.waveform.create_text(
+                width / 2,
+                center_y,
+                text=(
+                    "Waveform unavailable — install FFmpeg"
+                    if self.player.current_track is not None
+                    else "Select a track to see its waveform"
+                ),
+                fill=MUTED,
+                font=("TkDefaultFont", 9),
+            )
+            return
+
+        for index, peak in enumerate(peaks):
+            x = index * width / len(peaks)
+            amplitude = max(2, peak * (height * 0.43))
+            color = ACCENT if (
+                self.player.duration
+                and index / len(peaks) <= self.player.position / self.player.duration
+            ) else LINE
+            self.waveform.create_line(
+                x, center_y - amplitude, x, center_y + amplitude,
+                fill=color, width=max(1, width / len(peaks)),
+            )
+
+    def _seek_to_waveform(self, event: tk.Event) -> None:
+        if self.player.duration is None or self.player.current_track is None:
+            return
+        width = max(1, self.waveform.winfo_width())
+        self.player.seek(self.player.duration * min(1.0, max(0.0, event.x / width)))
+        if self.player.is_paused:
+            self.player.is_paused = False
+            self.player.play()
 
     def _highlight_lyric(self, index: int | None) -> None:
+        if self.lyrics_view is None or not self.lyrics_view.winfo_exists():
+            return
         self.lyrics_view.configure(state="normal")
         self.lyrics_view.tag_remove("active", "1.0", tk.END)
-        if index is not None and index < len(self._lyrics):
+        if (
+            self.player.lyrics_synced
+            and index is not None
+            and index < len(self._lyrics)
+        ):
             start = f"{index + 1}.0"
             end = f"{index + 1}.end"
             self.lyrics_view.tag_add("active", start, end)
             self.lyrics_view.see(start)
             self.current_lyric.configure(text=self._lyrics[index].text or "♪")
+        elif self._lyrics and not self.player.lyrics_synced:
+            self.current_lyric.configure(text="♪  Unsynchronized lyrics")
         elif not self._lyrics:
-            self.current_lyric.configure(text="♪  Lyrics appear here in time with your music")
+            self.current_lyric.configure(text="No lyrics attached — open Lyric to add them")
         self.lyrics_view.configure(state="disabled")
 
     def _set_status(self, message: str, *, error: bool = False) -> None:
@@ -916,6 +1251,106 @@ class TmusicApp:
             text=message.upper(),
             fg="#ff8b82" if error else MUTED,
         )
+
+    def _theme_palette(self, theme: str) -> dict[str, str]:
+        if theme == "light":
+            return {
+                BG: "#f3f5f2",
+                PANEL: "#ffffff",
+                PANEL_LIGHT: "#e5eae5",
+                ACCENT: "#527c28",
+                TEXT: "#202720",
+                MUTED: "#68746a",
+                LINE: "#c8d1c8",
+                "#29351f": "#dce8d1",
+                "#33402c": "#d4e2c8",
+                "#303a32": "#bcc9bc",
+                "#18201a": "#e7ece6",
+                "#29342c": "#dce3da",
+                "#15200e": "#eff5e8",
+                "#10140d": "#f3f5f2",
+                "#d4ff91": "#dce8d1",
+                "#28312c": "#d4e2c8",
+                "#ff8b82": "#b3261e",
+            }
+        return {
+            BG: "#0d1010",
+            PANEL: "#151a19",
+            PANEL_LIGHT: "#1d2421",
+            ACCENT: "#c3f27a",
+            TEXT: "#f1f3ed",
+            MUTED: "#89918a",
+            LINE: "#29312d",
+            "#29351f": "#29351f",
+            "#33402c": "#33402c",
+            "#303a32": "#303a32",
+            "#18201a": "#18201a",
+            "#29342c": "#29342c",
+            "#15200e": "#15200e",
+            "#10140d": "#10140d",
+            "#d4ff91": "#d4ff91",
+            "#28312c": "#28312c",
+            "#ff8b82": "#ff8b82",
+        }
+
+    def _theme_button_label(self) -> str:
+        selected = self.theme_preference.title()
+        return f"Theme: {selected}"
+
+    def toggle_theme(self) -> None:
+        modes = ("system", "dark", "light")
+        new_preference = modes[(modes.index(self.theme_preference) + 1) % len(modes)]
+        try:
+            save_theme_preference(new_preference)
+        except (OSError, RuntimeError, ValueError) as error:
+            self._set_status(f"Could not save theme preference: {error}", error=True)
+            return
+        self.theme_preference = new_preference
+        self.theme_name = system_theme() if new_preference == "system" else new_preference
+        self.theme_colors = self._theme_palette(self.theme_name)
+        self._apply_theme()
+        self.theme_button.configure(text=self._theme_button_label())
+
+    def _apply_theme(self) -> None:
+        light_colors = self._theme_palette("light")
+        color_map: dict[str, str] = {}
+        for dark_color, target_color in self.theme_colors.items():
+            color_map[dark_color] = target_color
+            color_map[light_colors[dark_color]] = target_color
+
+        def update_widget(widget: tk.Widget) -> None:
+            options: dict[str, str] = {}
+            for option in (
+                "bg", "fg", "activebackground", "activeforeground",
+                "disabledforeground", "insertbackground", "selectbackground",
+                "selectforeground", "troughcolor", "highlightbackground",
+            ):
+                try:
+                    value = str(widget.cget(option))
+                except tk.TclError:
+                    continue
+                if value in color_map:
+                    options[option] = color_map[value]
+            if options:
+                try:
+                    widget.configure(**options)
+                except tk.TclError:
+                    pass
+            if isinstance(widget, tk.Text):
+                widget.tag_configure("active", foreground=self.theme_colors[ACCENT])
+                widget.tag_configure("line", foreground=self.theme_colors[MUTED])
+            for child in widget.winfo_children():
+                update_widget(child)
+
+        update_widget(self.root)
+        style = ttk.Style(self.root)
+        style.configure(
+            "TProgressbar",
+            background=self.theme_colors[ACCENT],
+            troughcolor=self.theme_colors[PANEL_LIGHT],
+        )
+        self._draw_record()
+        self._draw_waveform()
 
     def _start_mpris(self) -> None:
         def run_service() -> None:
