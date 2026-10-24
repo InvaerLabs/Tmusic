@@ -25,7 +25,6 @@ from player import (
     format_time,
     read_track_lyrics,
     save_mp3_metadata,
-    waveform_peaks,
 )
 
 
@@ -76,12 +75,10 @@ class TmusicApp:
         self._background_messages: queue.SimpleQueue[str] = queue.SimpleQueue()
         self._download_messages: queue.SimpleQueue[tuple[str, object]] = queue.SimpleQueue()
         self._mpris_commands: queue.SimpleQueue[tuple[str, object | None]] = queue.SimpleQueue()
+        self._tray_icon = None
+        self._tray_error: str | None = None
         self._download_active = False
         self._displayed_track: Path | None = None
-        self._waveform_messages: queue.SimpleQueue[tuple[Path, object]] = queue.SimpleQueue()
-        self._waveform_track: Path | None = None
-        self._waveform_peaks: list[float] = []
-        self._waveform_requested: set[Path] = set()
         self.lyrics_panel: tk.Frame | None = None
         self.lyrics_view: tk.Text | None = None
         self._lyrics_visible = False
@@ -100,9 +97,12 @@ class TmusicApp:
         self.refresh_library()
         self._bind_shortcuts()
         if platform.system() == "Linux":
+            self._start_system_tray()
             self._start_mpris()
+            self.root.bind_all("<Mod4-q>", self._hide_window)
+            self.root.bind_all("<Mod4-Q>", self._hide_window)
         self._tick()
-        self.root.protocol("WM_DELETE_WINDOW", self.close)
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build_ui(self) -> None:
         self.root.title("Tmusic 2.0 — Local Player")
@@ -236,37 +236,31 @@ class TmusicApp:
         ).grid(row=0, column=0, sticky="w")
         tk.Label(
             self.download_page,
-            text="Paste a video URL to save its audio to your library.",
+            text="Copy a video link, then use one click to download its audio.",
             bg=PANEL, fg=MUTED, justify="left", wraplength=245,
             font=("TkDefaultFont", 9),
         ).grid(row=1, column=0, sticky="w", pady=(10, 18))
-        self.download_url = tk.Entry(
-            self.download_page, bg=PANEL_LIGHT, fg=TEXT, insertbackground=TEXT,
-            relief="flat", borderwidth=0, font=("TkDefaultFont", 10),
-        )
-        self.download_url.grid(row=2, column=0, sticky="ew", ipady=10, pady=(0, 12))
-        self.download_url.insert(0, "Paste URL")
-        self.download_url.bind("<FocusIn>", self._clear_download_placeholder)
         self.download_button = self._button(
-            self.download_page, "↓  Download audio", self.start_download, primary=True
+            self.download_page, "↓  Paste link & download",
+            self.start_download, primary=True,
         )
-        self.download_button.grid(row=3, column=0, sticky="ew")
+        self.download_button.grid(row=2, column=0, sticky="ew")
         self.download_progress = ttk.Progressbar(
             self.download_page, mode="determinate", maximum=100, style="TProgressbar"
         )
-        self.download_progress.grid(row=4, column=0, sticky="ew", pady=(18, 8))
+        self.download_progress.grid(row=3, column=0, sticky="ew", pady=(18, 8))
         self.download_status = tk.Label(
             self.download_page, text="MP3 • 192 kbps", bg=PANEL, fg=MUTED,
             anchor="w", justify="left", wraplength=245,
             font=("TkDefaultFont", 9),
         )
-        self.download_status.grid(row=7, column=0, sticky="ew")
+        self.download_status.grid(row=6, column=0, sticky="ew")
         tk.Label(
             self.download_page, text="SAVE TO", bg=PANEL, fg=TEXT,
             font=("TkDefaultFont", 9, "bold"),
-        ).grid(row=5, column=0, sticky="w", pady=(24, 6))
+        ).grid(row=4, column=0, sticky="w", pady=(24, 6))
         destination_row = tk.Frame(self.download_page, bg=PANEL)
-        destination_row.grid(row=6, column=0, sticky="ew")
+        destination_row.grid(row=5, column=0, sticky="ew")
         destination_row.grid_columnconfigure(0, weight=1)
         self.download_directory_label = tk.Label(
             destination_row,
@@ -299,14 +293,20 @@ class TmusicApp:
             self.library_tab_button.configure(fg=ACCENT, bg="#29351f")
             self.download_tab_button.configure(fg=TEXT, bg=PANEL_LIGHT)
 
-    def _clear_download_placeholder(self, _event: tk.Event) -> None:
-        if self.download_url.get() == "Paste URL":
-            self.download_url.delete(0, tk.END)
-
     def start_download(self) -> None:
-        url = self.download_url.get().strip()
-        if not url or url == "Paste URL":
-            self.download_status.configure(text="Enter a video URL to download.", fg="#ff8b82")
+        try:
+            url = self.root.clipboard_get().strip()
+        except tk.TclError:
+            self.download_status.configure(
+                text="Clipboard is empty or does not contain text.",
+                fg="#ff8b82",
+            )
+            return
+        if not url:
+            self.download_status.configure(
+                text="Copy a video link to the clipboard first.",
+                fg="#ff8b82",
+            )
             return
         if self._download_active:
             return
@@ -392,8 +392,7 @@ class TmusicApp:
 
         artwork_and_lyrics = tk.Frame(content, bg=BG)
         artwork_and_lyrics.grid(row=3, column=0, sticky="nsew")
-        artwork_and_lyrics.grid_rowconfigure(1, weight=1)
-        artwork_and_lyrics.grid_rowconfigure(3, weight=1)
+        artwork_and_lyrics.grid_rowconfigure(2, weight=1)
         artwork_and_lyrics.grid_columnconfigure(0, weight=1)
 
         self.cover = tk.Canvas(
@@ -403,22 +402,15 @@ class TmusicApp:
         self.cover.grid(row=0, column=0, sticky="ew", pady=(0, 14))
         self.cover.bind("<Configure>", self._draw_record)
 
-        self.waveform = tk.Canvas(
-            artwork_and_lyrics, height=112, bg=PANEL,
-            highlightthickness=0, borderwidth=0,
-        )
-        self.waveform.grid(row=1, column=0, sticky="ew")
-        self.waveform.bind("<Configure>", self._draw_waveform)
-        self.waveform.bind("<Button-1>", self._seek_to_waveform)
         self.current_lyric = tk.Label(
             artwork_and_lyrics,
             text="Select a track to view lyrics",
             bg=BG, fg=MUTED, anchor="w", font=("TkDefaultFont", 10, "italic"),
         )
-        self.current_lyric.grid(row=2, column=0, sticky="ew", pady=(10, 8))
+        self.current_lyric.grid(row=1, column=0, sticky="ew", pady=(10, 8))
 
         self.lyrics_panel = tk.Frame(artwork_and_lyrics, bg=PANEL, padx=14, pady=12)
-        self.lyrics_panel.grid(row=3, column=0, sticky="nsew")
+        self.lyrics_panel.grid(row=2, column=0, sticky="nsew")
         self.lyrics_panel.grid_columnconfigure(0, weight=1)
         self.lyrics_panel.grid_rowconfigure(1, weight=1)
         self.lyrics_title = tk.Label(
@@ -795,6 +787,8 @@ class TmusicApp:
         track = self.player.current_track
         self._displayed_track = None
         self._sync_displayed_track()
+        if track is not None and not self.player.lyrics:
+            self._request_track_lyrics(track)
         self._set_status(f"Playing {track.name if track else 'track'}")
         self._update_play_button()
 
@@ -974,7 +968,6 @@ class TmusicApp:
         if self._closing:
             return
         self._process_download_messages()
-        self._process_waveform_messages()
         if not self._process_mpris_commands():
             return
         try:
@@ -1014,9 +1007,6 @@ class TmusicApp:
         if active_index != self._last_lyric_index:
             self._highlight_lyric(active_index)
             self._last_lyric_index = active_index
-        if self._waveform_track == self.player.current_track and self._waveform_peaks:
-            self._draw_waveform()
-
         if self.player.track_finished():
             if self.repeat_mode == "one":
                 self.player.seek(0)
@@ -1062,11 +1052,14 @@ class TmusicApp:
             self._download_active = False
             self.download_progress.stop()
             self.download_progress.configure(mode="determinate")
-            self.download_button.configure(state="normal", text="↓  Download audio")
+            self.download_button.configure(
+                state="normal", text="↓  Paste link & download"
+            )
             if kind == "complete" and isinstance(payload, Path):
                 self.download_progress["value"] = 100
                 self.download_status.configure(
-                    text=f"Saved to {payload.name}", fg=ACCENT
+                    text=f"Saved to {payload.name}",
+                    fg=ACCENT,
                 )
                 self.refresh_library()
                 self._set_status(f"Downloaded {payload.name}")
@@ -1125,9 +1118,6 @@ class TmusicApp:
             self._lyrics = []
             self._render_lyrics()
             self._draw_record()
-            self._waveform_track = None
-            self._waveform_peaks = []
-            self._draw_waveform()
             return
 
         metadata = self.player.track_metadata
@@ -1145,85 +1135,6 @@ class TmusicApp:
         self._render_lyrics()
         self._last_lyric_index = None
         self._draw_record()
-        self._request_waveform(track)
-
-    def _request_waveform(self, track: Path) -> None:
-        if track == self._waveform_track and self._waveform_peaks:
-            return
-        if track in self._waveform_requested:
-            return
-        self._waveform_requested.add(track)
-
-        def load() -> None:
-            try:
-                peaks: object = waveform_peaks(track)
-            except RuntimeError as error:
-                peaks = error
-            self._waveform_messages.put((track, peaks))
-
-        threading.Thread(
-            target=load, name="tmusic-waveform", daemon=True
-        ).start()
-
-    def _process_waveform_messages(self) -> None:
-        while True:
-            try:
-                track, result = self._waveform_messages.get_nowait()
-            except queue.Empty:
-                return
-            self._waveform_requested.discard(track)
-            if track != self.player.current_track:
-                continue
-            if isinstance(result, RuntimeError):
-                self._set_status(str(result), error=True)
-                continue
-            if isinstance(result, list):
-                self._waveform_track = track
-                self._waveform_peaks = result
-                self._draw_waveform()
-
-    def _draw_waveform(self, _event: tk.Event | None = None) -> None:
-        if not hasattr(self, "waveform"):
-            return
-        self.waveform.delete("all")
-        width = max(1, self.waveform.winfo_width())
-        height = max(1, self.waveform.winfo_height())
-        center_y = height / 2
-        peaks = self._waveform_peaks if self._waveform_track == self.player.current_track else []
-        if not peaks:
-            self.waveform.create_text(
-                width / 2,
-                center_y,
-                text=(
-                    "Waveform unavailable — install FFmpeg"
-                    if self.player.current_track is not None
-                    else "Select a track to see its waveform"
-                ),
-                fill=MUTED,
-                font=("TkDefaultFont", 9),
-            )
-            return
-
-        for index, peak in enumerate(peaks):
-            x = index * width / len(peaks)
-            amplitude = max(2, peak * (height * 0.43))
-            color = ACCENT if (
-                self.player.duration
-                and index / len(peaks) <= self.player.position / self.player.duration
-            ) else LINE
-            self.waveform.create_line(
-                x, center_y - amplitude, x, center_y + amplitude,
-                fill=color, width=max(1, width / len(peaks)),
-            )
-
-    def _seek_to_waveform(self, event: tk.Event) -> None:
-        if self.player.duration is None or self.player.current_track is None:
-            return
-        width = max(1, self.waveform.winfo_width())
-        self.player.seek(self.player.duration * min(1.0, max(0.0, event.x / width)))
-        if self.player.is_paused:
-            self.player.is_paused = False
-            self.player.play()
 
     def _highlight_lyric(self, index: int | None) -> None:
         if self.lyrics_view is None or not self.lyrics_view.winfo_exists():
@@ -1350,7 +1261,6 @@ class TmusicApp:
             troughcolor=self.theme_colors[PANEL_LIGHT],
         )
         self._draw_record()
-        self._draw_waveform()
 
     def _start_mpris(self) -> None:
         def run_service() -> None:
@@ -1367,9 +1277,45 @@ class TmusicApp:
 
         threading.Thread(target=run_service, name="tmusic-mpris", daemon=True).start()
 
+    def _start_system_tray(self) -> None:
+        try:
+            from system_tray import create_system_tray
+
+            self._tray_icon = create_system_tray(
+                lambda: self._mpris_commands.put(("raise", None)),
+                lambda: self._mpris_commands.put(("quit", None)),
+            )
+            self._tray_icon.run_detached()
+            self._tray_icon.visible = True
+        except Exception as error:
+            self._tray_icon = None
+            self._tray_error = str(error)
+            self._background_messages.put(f"System tray unavailable: {error}")
+
+    def _hide_window(self, _event: tk.Event | None = None) -> str:
+        self.root.withdraw()
+        return "break"
+
+    def _on_close(self) -> None:
+        if platform.system() == "Linux":
+            if self._tray_icon is not None:
+                self.root.withdraw()
+                return
+            messagebox.showwarning(
+                "System tray unavailable",
+                "Tmusic cannot stay hidden because its tray menu did not start. "
+                "The app will now exit.\n\n"
+                f"{self._tray_error or 'No tray backend is available.'}",
+                parent=self.root,
+            )
+        self.close()
+
     def close(self) -> None:
         self._closing = True
         self.player.stop()
+        if self._tray_icon is not None:
+            self._tray_icon.stop()
+            self._tray_icon = None
         self.root.destroy()
 
 

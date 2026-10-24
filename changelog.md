@@ -13,7 +13,6 @@ with integrated downloads, lyrics, and desktop controls.
   plain lyrics in MP3 ID3 tags.
 - Added automatic display of embedded MP3 lyrics and matching `.lrc` sidecars
   in an inline, show/hide lyrics panel.
-- Added an optional FFmpeg-generated waveform with click-to-seek.
 - Updated shuffle to play each library track once per round before reshuffling.
 - Added System, Dark, and Light appearance options and persistent preferences.
 - Added Linux, Windows, and macOS release builds, plus updated installation

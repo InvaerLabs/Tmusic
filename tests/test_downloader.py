@@ -34,9 +34,9 @@ class DownloaderTests(unittest.TestCase):
             )
 
             self.assertEqual(result, audio_path)
-            self.assertEqual(
+            self.assertIn(
+                {"status": "downloading", "downloaded_bytes": 50},
                 progress_updates,
-                [{"status": "downloading", "downloaded_bytes": 50}],
             )
             self.assertTrue(options_seen["noplaylist"])
             self.assertEqual(

@@ -3,10 +3,6 @@ from __future__ import annotations
 import os
 import random
 import re
-import shutil
-import subprocess
-import sys
-from array import array
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -403,39 +399,3 @@ class MusicPlayer:
 
     def lyric_position(self, index: int) -> float:
         return self.lyrics[index].timestamp
-
-
-def waveform_peaks(path: Path, width: int = 512) -> list[float]:
-    ffmpeg = shutil.which("ffmpeg")
-    if ffmpeg is None:
-        return []
-    command = [
-        ffmpeg, "-v", "error", "-i", str(path), "-vn", "-ac", "1", "-ar", "4000",
-        "-f", "s16le", "-acodec", "pcm_s16le", "pipe:1",
-    ]
-    try:
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            check=True,
-            timeout=90,
-        )
-    except (OSError, subprocess.SubprocessError) as error:
-        raise RuntimeError(f"Could not read audio waveform: {error}") from error
-
-    samples = array("h")
-    samples.frombytes(result.stdout[: len(result.stdout) - len(result.stdout) % 2])
-    if sys.byteorder != "little":
-        samples.byteswap()
-    if not samples:
-        return []
-
-    peaks: list[float] = []
-    for bucket in range(width):
-        start = bucket * len(samples) // width
-        end = max(start + 1, (bucket + 1) * len(samples) // width)
-        if start >= len(samples):
-            break
-        peak = max(abs(sample) for sample in samples[start:min(end, len(samples))])
-        peaks.append(peak / 32768)
-    return peaks
