@@ -89,3 +89,8 @@ python -m compileall -q main.py player.py downloader.py preferences.py MPRIS.py
 The release workflow builds and publishes packages when a `v2.0` or `v2.0.*`
 tag is pushed. Manual workflow runs upload packages as GitHub Actions
 artifacts.
+
+# Screenshots
+![Screenshot](Screenshot1.png)
+
+![Screenshot2](Screenshot2.png)
