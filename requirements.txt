@@ -1,0 +1,13 @@
+# GUI & Image Processing
+Pillow>=10.0.0
+pystray>=0.19.5
+
+# YouTube Media Downloader
+yt-dlp>=2023.0.0
+
+# pygame-compatible audio playback; includes native Windows ARM64 wheels.
+pygame-ce>=2.5.8
+mutagen>=1.47.0
+
+# Packaging & Distribution
+pyinstaller>=5.0.0
