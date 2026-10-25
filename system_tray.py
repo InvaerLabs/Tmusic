@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from importlib import import_module
+from types import ModuleType
 from typing import Protocol
 
-import pystray
 from PIL import Image, ImageDraw
+
+
+def _load_pystray() -> ModuleType:
+    return import_module("pystray")
 
 
 class SystemTrayIcon(Protocol):
@@ -20,6 +25,7 @@ def create_system_tray(
     on_show: Callable[[], None],
     on_quit: Callable[[], None],
 ) -> SystemTrayIcon:
+    pystray = _load_pystray()
     image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
     draw.rounded_rectangle((4, 4, 60, 60), radius=14, fill="#151a19")
