@@ -38,9 +38,10 @@ Choose your operating system and CPU architecture (`x86_64` or `arm64`):
   `Tmusic-macOS-arm64.zip`, then open `Tmusic.app`.
 
 The release workflow builds native x86_64 and ARM64 packages for Linux,
-Windows, and macOS. FFmpeg must be installed separately for downloading and
-converting audio. Linux MPRIS and tray controls require the appropriate
-system D-Bus, GObject, GTK, and AppIndicator libraries.
+Windows, and macOS. Audio downloads are decoded with PyAV's bundled media
+libraries and encoded to MP3 with LAME; no system FFmpeg executable is needed.
+Linux MPRIS and tray controls require the appropriate system D-Bus, GObject,
+GTK, and AppIndicator libraries.
 
 On Linux, closing the window or pressing **Super+Q** hides it while playback
 and MPRIS remain active. Use the tray's **Show Tmusic** and **Quit Tmusic**

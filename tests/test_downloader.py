@@ -1,18 +1,22 @@
+import struct
 import tempfile
 import unittest
+import wave
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import av
 import yt_dlp
 
-from downloader import Downloader
+from downloader import Downloader, _convert_to_mp3
 
 
 class DownloaderTests(unittest.TestCase):
     def test_download_reports_progress_and_returns_saved_audio(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            audio_path = Path(temporary_directory) / "track.mp3"
+            audio_path = Path(temporary_directory) / "track.webm"
             audio_path.touch()
+            mp3_path = Path(temporary_directory) / "track.mp3"
             progress_updates: list[dict[str, object]] = []
             options_seen: dict[str, object] = {}
             youtube_dl = MagicMock()
@@ -25,24 +29,28 @@ class DownloaderTests(unittest.TestCase):
                 return youtube_dl
 
             with patch("downloader.yt_dlp.YoutubeDL", side_effect=create_downloader):
-                result = Downloader(temporary_directory).download_audio(
-                    "https://example.com/watch?v=track",
-                    progress_updates.append,
-                )
+                with patch(
+                    "downloader._convert_to_mp3",
+                    side_effect=lambda _source, destination: destination.touch(),
+                ) as convert:
+                    result = Downloader(temporary_directory).download_audio(
+                        "https://example.com/watch?v=track",
+                        progress_updates.append,
+                    )
             options_seen["progress_hooks"][0](
                 {"status": "downloading", "downloaded_bytes": 50}
             )
 
-            self.assertEqual(result, audio_path)
+            self.assertEqual(result, mp3_path)
+            convert.assert_called_once()
+            self.assertEqual(convert.call_args.args[0], audio_path)
+            self.assertEqual(convert.call_args.args[1].suffix, ".mp3")
             self.assertEqual(
                 progress_updates,
                 [{"status": "downloading", "downloaded_bytes": 50}],
             )
             self.assertTrue(options_seen["noplaylist"])
-            self.assertEqual(
-                options_seen["postprocessors"][0]["preferredcodec"],
-                "mp3",
-            )
+            self.assertNotIn("postprocessors", options_seen)
 
     def test_blank_url_is_rejected_without_network_access(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -80,6 +88,23 @@ class DownloaderTests(unittest.TestCase):
                     )
 
             self.assertIn("anti-bot verification", str(error.exception))
+
+    def test_lameenc_converts_decoded_audio_to_mp3(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source = Path(temporary_directory) / "input.wav"
+            destination = Path(temporary_directory) / "output.mp3"
+            with wave.open(str(source), "wb") as audio_file:
+                audio_file.setnchannels(1)
+                audio_file.setsampwidth(2)
+                audio_file.setframerate(22050)
+                audio_file.writeframes(struct.pack("<h", 500) * 2205)
+
+            _convert_to_mp3(source, destination)
+
+            self.assertGreater(destination.stat().st_size, 0)
+            with av.open(str(destination)) as mp3_file:
+                decoded_frames = list(mp3_file.decode(audio=0))
+            self.assertTrue(decoded_frames)
 
 
 if __name__ == "__main__":
