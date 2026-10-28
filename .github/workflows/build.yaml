@@ -1,0 +1,182 @@
+name: Build Tmusic 3.0
+
+on:
+  push:
+    tags:
+      - "v3.0"
+      - "v3.0.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }} ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Linux
+            runner: ubuntu-24.04
+            arch: x86_64
+            python-arch: x64
+          - platform: Linux
+            runner: ubuntu-24.04-arm
+            arch: arm64
+            python-arch: arm64
+          - platform: Windows
+            runner: windows-2025
+            arch: x86_64
+            python-arch: x64
+          - platform: Windows
+            runner: windows-11-arm
+            arch: arm64
+            python-arch: arm64
+          - platform: macOS
+            runner: macos-15-intel
+            arch: x86_64
+            python-arch: x64
+          - platform: macOS
+            runner: macos-15
+            arch: arm64
+            python-arch: arm64
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: ${{ matrix.python-arch }}
+
+      - name: Install Linux GUI and media dependencies
+        if: matrix.platform == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gir1.2-ayatanaappindicator3-0.1 \
+            gir1.2-gtk-3.0 \
+            python3-dbus \
+            python3-gi \
+            python3-tk
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pyinstaller
+
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Build Linux application with MPRIS
+        if: matrix.platform == 'Linux'
+        run: >-
+          python -m PyInstaller
+          --noconfirm
+          --clean
+          --windowed
+          --onefile
+          --name Tmusic
+          --paths /usr/lib/python3/dist-packages
+          --hidden-import MPRIS
+          --hidden-import system_tray
+          --exclude-module SMTC
+          --exclude-module NowPlaying
+          --collect-all pygame
+          --collect-all yt_dlp
+          --collect-all pystray
+          --collect-all av
+          --collect-all lameenc
+          main.py
+
+      - name: Build Windows application with SMTC
+        if: matrix.platform == 'Windows'
+        run: >-
+          python -m PyInstaller
+          --noconfirm
+          --clean
+          --windowed
+          --onefile
+          --name Tmusic
+          --hidden-import SMTC
+          --exclude-module MPRIS
+          --exclude-module NowPlaying
+          --exclude-module system_tray
+          --collect-all pygame
+          --collect-all yt_dlp
+          --collect-all av
+          --collect-all lameenc
+          --collect-all winsdk
+          main.py
+
+      - name: Build macOS application with Now Playing
+        if: matrix.platform == 'macOS'
+        run: >-
+          python -m PyInstaller
+          --noconfirm
+          --clean
+          --windowed
+          --onefile
+          --name Tmusic
+          --hidden-import NowPlaying
+          --hidden-import objc
+          --hidden-import Foundation
+          --hidden-import MediaPlayer
+          --exclude-module MPRIS
+          --exclude-module SMTC
+          --exclude-module system_tray
+          --collect-all pygame
+          --collect-all yt_dlp
+          --collect-all av
+          --collect-all lameenc
+          main.py
+
+      - name: Package Linux binary
+        if: matrix.platform == 'Linux'
+        run: |
+          mkdir -p release
+          tar -czf "release/Tmusic-Linux-${{ matrix.arch }}.tar.gz" -C dist Tmusic
+
+      - name: Package Windows binary
+        if: matrix.platform == 'Windows'
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          Compress-Archive -Path dist/Tmusic.exe -DestinationPath "release/Tmusic-Windows-${{ matrix.arch }}.zip"
+        shell: pwsh
+
+      - name: Package macOS application
+        if: matrix.platform == 'macOS'
+        run: |
+          mkdir -p release
+          ditto -c -k --sequesterRsrc --keepParent dist/Tmusic.app "release/Tmusic-macOS-${{ matrix.arch }}.zip"
+
+      - name: Upload release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tmusic-v3.0-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release/Tmusic-*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download platform packages
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish release packages
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/Tmusic-*
+          generate_release_notes: true
