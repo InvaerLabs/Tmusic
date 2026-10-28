@@ -1,3 +1,4 @@
+import math
 import struct
 import tempfile
 import unittest
@@ -97,12 +98,19 @@ class DownloaderTests(unittest.TestCase):
                 audio_file.setnchannels(1)
                 audio_file.setsampwidth(2)
                 audio_file.setframerate(22050)
-                audio_file.writeframes(struct.pack("<h", 500) * 2205)
+                sample_count = 22050
+                samples = (
+                    int(12000 * math.sin(2 * math.pi * 440 * index / 22050))
+                    for index in range(sample_count)
+                )
+                audio_file.writeframes(
+                    struct.pack(f"<{sample_count}h", *samples)
+                )
 
             _convert_to_mp3(source, destination)
 
             self.assertGreater(destination.stat().st_size, 0)
-            with av.open(str(destination)) as mp3_file:
+            with av.open(str(destination), format="mp3") as mp3_file:
                 decoded_frames = list(mp3_file.decode(audio=0))
             self.assertTrue(decoded_frames)
 
