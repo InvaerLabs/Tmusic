@@ -46,6 +46,13 @@ pip install -r requirements.txt
 python main.py
 ```
 
+## Why you choose Tmusic?
+
+Imagine you are exploring YouTube and come across an AMV (Anime Music Video) that you absolutely love. Typically, creators edit the music in these AMVs by adding extra beats or incorporating anime character voiceovers. You fall in love with a video like this, but you can't download it for free, nor can you find it on Spotify. The journey of Tmusic began precisely to solve this problem. All you have to do is copy the link to your favorite video, paste it into our Tmusic app, and that's it—your track is ready for offline playback.
+
+Now, imagine another scenario: you love listening to music while gaming, but desktop music applications are usually heavy and consume a lot of RAM, which disrupts your gaming experience. Our Tmusic app has no such issues. We built this app using a lightweight Python script that absorbs very little RAM (less than 70MB), ensuring a seamless experience during your gaming sessions
+
+
 ## Keyboard Shortcuts
 
 * **Space:** Play / Pause playback
@@ -69,7 +76,10 @@ This project is licensed under the MIT License. See the [License](LICENSE) file 
 
 ## Screenshots
 
-![SS1](Screenshot1.png)
+![Light](Screenshot1.png)
 
 
-![SS2](Screenshot2.png)
+![Dark](Screenshot2.png)
+
+
+![Star](Screenshot3.png)
