@@ -112,6 +112,9 @@ jobs:
             --include-module=platform_integration.MPRIS \
             --nofollow-import-to=platform_integration.SMTC \
             --nofollow-import-to=platform_integration.NowPlaying \
+            --product-name=Tmusic \
+            --company-name="Invaer Labs" \
+            --product-version=3.0 \
             --linux-create-installer \
             --linux-installer-output=release/Tmusic-Linux-${{ matrix.arch }}.AppImage \
             --assume-yes-for-downloads \
@@ -127,6 +130,7 @@ jobs:
           python -m nuitka `
             --mode=app-dist `
             --output-dir=build `
+            --output-folder-name=Tmusic.dist `
             --output-filename=Tmusic `
             --windows-console-mode=disable `
             --include-data-dir=src/webui/dist=webui/dist `
@@ -141,6 +145,11 @@ jobs:
             --assume-yes-for-downloads `
             --jobs=2 `
             src/main.pyw
+
+          if (-not (Test-Path "build\Tmusic.dist\Tmusic.exe")) {
+            Get-ChildItem build -Force
+            throw "Nuitka did not create build\Tmusic.dist\Tmusic.exe."
+          }
 
           $innoSetup = @(
             "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
@@ -160,7 +169,6 @@ jobs:
             --mode=app-dist \
             --output-dir=build \
             --output-filename=Tmusic \
-            --macos-create-app-bundle \
             --macos-app-name=Tmusic \
             --include-data-dir=src/webui/dist=webui/dist \
             --include-data-files=Logo.jpeg=Logo.jpeg \
