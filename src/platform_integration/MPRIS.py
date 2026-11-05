@@ -16,7 +16,7 @@ ROOT_INTERFACE = "org.mpris.MediaPlayer2"
 PROPERTIES_INTERFACE = "org.freedesktop.DBus.Properties"
 OBJECT_PATH = "/org/mpris/MediaPlayer2"
 NO_TRACK = dbus.ObjectPath("/org/mpris/MediaPlayer2/TrackList/NoTrack")
-POLL_INTERVAL_MS = 500
+POLL_INTERVAL_MS = 1000
 
 
 class MediaPlayerMPRIS(dbus.service.Object):
@@ -44,7 +44,7 @@ class MediaPlayerMPRIS(dbus.service.Object):
         self._seek_attempts = 0
         self._last_properties = self._player_properties()
         GLib.timeout_add(POLL_INTERVAL_MS, self._poll_properties)
-        GLib.timeout_add(100, self._check_stop)
+        GLib.timeout_add(500, self._check_stop)
 
     @dbus.service.method(PLAYER_INTERFACE, in_signature="", out_signature="")
     def PlayPause(self) -> None:
@@ -198,7 +198,7 @@ class MediaPlayerMPRIS(dbus.service.Object):
             f"/org/mpris/MediaPlayer2/Track/{self.player.current_index}"
         )
 
-    def _player_properties(self) -> dict[str, object]:
+    def _player_properties(self, *, include_position: bool = True) -> dict[str, object]:
         track = self.player.current_track
         track_metadata = self.player.track_metadata
         metadata: dict[str, object] = {"mpris:trackid": self._track_id()}
@@ -230,7 +230,7 @@ class MediaPlayerMPRIS(dbus.service.Object):
             "all": "Playlist",
             "one": "Track",
         }.get(self.player.repeat_mode, "None")
-        return {
+        properties: dict[str, object] = {
             "PlaybackStatus": dbus.String(
                 "Playing"
                 if self.player.is_playing
@@ -241,7 +241,6 @@ class MediaPlayerMPRIS(dbus.service.Object):
             "Shuffle": dbus.Boolean(self.player.shuffle),
             "Metadata": dbus.Dictionary(metadata, signature="sv"),
             "Volume": dbus.Double(self.player.volume),
-            "Position": dbus.Int64(round(self.player.position * 1_000_000)),
             "MinimumRate": dbus.Double(1.0),
             "MaximumRate": dbus.Double(1.0),
             "CanGoNext": dbus.Boolean(bool(self.player.tracks)),
@@ -253,11 +252,16 @@ class MediaPlayerMPRIS(dbus.service.Object):
             ),
             "CanControl": dbus.Boolean(True),
         }
+        if include_position:
+            properties["Position"] = dbus.Int64(
+                round(self.player.position * 1_000_000)
+            )
+        return properties
 
     def _poll_properties(self) -> bool:
         if self._stop_requested.is_set():
             return False
-        current = self._player_properties()
+        current = self._player_properties(include_position=False)
         changed = {
             key: value
             for key, value in current.items()

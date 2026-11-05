@@ -42,6 +42,7 @@ jobs:
             runner: macos-15
             arch: arm64
             python-arch: arm64
+
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -59,102 +60,126 @@ jobs:
           sudo apt-get install -y \
             gir1.2-ayatanaappindicator3-0.1 \
             gir1.2-gtk-3.0 \
+            gir1.2-webkit2-4.1 \
+            patchelf \
             python3-dbus \
-            python3-gi \
-            python3-tk
+            python3-gi
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-          python -m pip install pyinstaller
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: src/webui/package-lock.json
+
+      - name: Build local web interface
+        run: |
+          npm ci --prefix src/webui
+          npm run build --prefix src/webui
 
       - name: Run tests
         run: python -m unittest discover -s tests -v
+        env:
+          PYTHONPATH: src
 
-      - name: Build Linux application with MPRIS
-        if: matrix.platform == 'Linux'
-        run: >-
-          python -m PyInstaller
-          --noconfirm
-          --clean
-          --windowed
-          --onefile
-          --name Tmusic
-          --paths /usr/lib/python3/dist-packages
-          --hidden-import MPRIS
-          --hidden-import system_tray
-          --exclude-module SMTC
-          --exclude-module NowPlaying
-          --collect-all pygame
-          --collect-all yt_dlp
-          --collect-all pystray
-          --collect-all av
-          --collect-all lameenc
-          main.py
+      - name: Prepare release directory
+        run: mkdir release
 
-      - name: Build Windows application with SMTC
+      - name: Install Inno Setup
         if: matrix.platform == 'Windows'
-        run: >-
-          python -m PyInstaller
-          --noconfirm
-          --clean
-          --windowed
-          --onefile
-          --name Tmusic
-          --hidden-import SMTC
-          --exclude-module MPRIS
-          --exclude-module NowPlaying
-          --exclude-module system_tray
-          --collect-all pygame
-          --collect-all yt_dlp
-          --collect-all av
-          --collect-all lameenc
-          --collect-all winsdk
-          main.py
-
-      - name: Build macOS application with Now Playing
-        if: matrix.platform == 'macOS'
-        run: >-
-          python -m PyInstaller
-          --noconfirm
-          --clean
-          --windowed
-          --onefile
-          --name Tmusic
-          --hidden-import NowPlaying
-          --hidden-import objc
-          --hidden-import Foundation
-          --hidden-import MediaPlayer
-          --exclude-module MPRIS
-          --exclude-module SMTC
-          --exclude-module system_tray
-          --collect-all pygame
-          --collect-all yt_dlp
-          --collect-all av
-          --collect-all lameenc
-          main.py
-
-      - name: Package Linux binary
-        if: matrix.platform == 'Linux'
-        run: |
-          mkdir -p release
-          tar -czf "release/Tmusic-Linux-${{ matrix.arch }}.tar.gz" -C dist Tmusic
-
-      - name: Package Windows binary
-        if: matrix.platform == 'Windows'
-        run: |
-          New-Item -ItemType Directory -Force -Path release | Out-Null
-          Compress-Archive -Path dist/Tmusic.exe -DestinationPath "release/Tmusic-Windows-${{ matrix.arch }}.zip"
+        run: choco install innosetup --yes --no-progress
         shell: pwsh
 
-      - name: Package macOS application
-        if: matrix.platform == 'macOS'
+      - name: Build Linux AppImage with Nuitka
+        if: matrix.platform == 'Linux'
+        env:
+          PYTHONPATH: /usr/lib/python3/dist-packages:src
         run: |
-          mkdir -p release
-          ditto -c -k --sequesterRsrc --keepParent dist/Tmusic.app "release/Tmusic-macOS-${{ matrix.arch }}.zip"
+          python -m nuitka \
+            --mode=app-dist \
+            --output-dir=build \
+            --output-filename=Tmusic \
+            --include-data-dir=src/webui/dist=webui/dist \
+            --include-data-files=Logo.jpeg=Logo.jpeg \
+            --include-package=pystray \
+            --include-package=webview \
+            --include-module=webview.platforms.gtk \
+            --include-module=platform_integration.MPRIS \
+            --nofollow-import-to=platform_integration.SMTC \
+            --nofollow-import-to=platform_integration.NowPlaying \
+            --linux-create-installer \
+            --linux-installer-output=release/Tmusic-Linux-${{ matrix.arch }}.AppImage \
+            --assume-yes-for-downloads \
+            --jobs=2 \
+            src/main.pyw
 
-      - name: Upload release package
+      - name: Build Windows installer with Nuitka and Inno Setup
+        if: matrix.platform == 'Windows'
+        env:
+          PYTHONPATH: src
+        shell: pwsh
+        run: |
+          python -m nuitka `
+            --mode=app-dist `
+            --output-dir=build `
+            --output-filename=Tmusic `
+            --windows-console-mode=disable `
+            --include-data-dir=src/webui/dist=webui/dist `
+            --include-data-files=Logo.jpeg=Logo.jpeg `
+            --include-package=pystray `
+            --include-package=webview `
+            --include-module=webview.platforms.winforms `
+            --include-module=platform_integration.SMTC `
+            --include-package=winsdk `
+            --nofollow-import-to=platform_integration.MPRIS `
+            --nofollow-import-to=platform_integration.NowPlaying `
+            --assume-yes-for-downloads `
+            --jobs=2 `
+            src/main.pyw
+
+          $innoSetup = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $innoSetup) {
+            throw "Inno Setup compiler (ISCC.exe) was not found."
+          }
+          & $innoSetup "/DArch=${{ matrix.arch }}" installer.iss
+
+      - name: Build macOS DMG with Nuitka
+        if: matrix.platform == 'macOS'
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m nuitka \
+            --mode=app-dist \
+            --output-dir=build \
+            --output-filename=Tmusic \
+            --macos-create-app-bundle \
+            --macos-app-name=Tmusic \
+            --include-data-dir=src/webui/dist=webui/dist \
+            --include-data-files=Logo.jpeg=Logo.jpeg \
+            --include-package=pystray \
+            --include-package=webview \
+            --include-module=webview.platforms.cocoa \
+            --include-module=platform_integration.NowPlaying \
+            --include-module=objc \
+            --include-module=Foundation \
+            --include-module=MediaPlayer \
+            --nofollow-import-to=platform_integration.MPRIS \
+            --nofollow-import-to=platform_integration.SMTC \
+            --macos-create-installer \
+            --macos-installer-output=release/Tmusic-macOS-${{ matrix.arch }}.dmg \
+            --assume-yes-for-downloads \
+            --jobs=2 \
+            src/main.pyw
+
+      - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
           name: Tmusic-v3.0-${{ matrix.platform }}-${{ matrix.arch }}
@@ -169,13 +194,13 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download platform packages
+      - name: Download platform installers
         uses: actions/download-artifact@v4
         with:
           path: release-assets
           merge-multiple: true
 
-      - name: Publish release packages
+      - name: Publish release installers
         uses: softprops/action-gh-release@v2
         with:
           files: release-assets/Tmusic-*

@@ -7,13 +7,15 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
-from preferences import (
+from utils.preferences import (
     default_music_directory,
     load_download_directory,
+    load_mp3_bitrate,
     load_music_folders,
     load_show_cover,
     load_theme_preference,
     save_download_directory,
+    save_mp3_bitrate,
     save_music_folders,
     save_show_cover,
     save_theme_preference,
@@ -24,20 +26,20 @@ from preferences import (
 @contextmanager
 def isolated_preferences(directory: str) -> Iterator[Path]:
     settings_file = Path(directory) / "tmusic" / "settings.json"
-    with patch("preferences.preferences_path", return_value=settings_file):
+    with patch("utils.preferences.preferences_path", return_value=settings_file):
         yield settings_file
 
 
 class DownloadDirectoryPreferenceTests(unittest.TestCase):
     def test_default_is_home_music(self) -> None:
-        with patch("preferences.Path.home", return_value=Path("/home/test-user")):
+        with patch("utils.preferences.Path.home", return_value=Path("/home/test-user")):
             self.assertEqual(default_music_directory(), Path("/home/test-user/Music"))
 
     def test_load_defaults_to_home_music_without_saved_settings(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             with (
                 isolated_preferences(temporary_directory),
-                patch("preferences.Path.home", return_value=Path("/home/test-user")),
+                patch("utils.preferences.Path.home", return_value=Path("/home/test-user")),
             ):
                 self.assertEqual(
                     load_download_directory(),
@@ -53,6 +55,25 @@ class DownloadDirectoryPreferenceTests(unittest.TestCase):
                 self.assertEqual(load_download_directory(), destination)
                 settings = json.loads(settings_file.read_text(encoding="utf-8"))
                 self.assertEqual(settings["download_directory"], str(destination))
+
+    def test_mp3_bitrate_defaults_and_persists(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            with isolated_preferences(temporary_directory) as settings_file:
+                self.assertEqual(load_mp3_bitrate(), 320)
+
+                save_mp3_bitrate(256)
+
+                self.assertEqual(load_mp3_bitrate(), 256)
+                self.assertEqual(
+                    json.loads(settings_file.read_text(encoding="utf-8"))["mp3_bitrate"],
+                    256,
+                )
+
+    def test_unsupported_mp3_bitrate_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            with isolated_preferences(temporary_directory):
+                with self.assertRaisesRegex(ValueError, "192, 256, 320"):
+                    save_mp3_bitrate(128)
 
     def test_invalid_saved_settings_are_reported(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -111,7 +132,7 @@ class DownloadDirectoryPreferenceTests(unittest.TestCase):
 
     def test_system_theme_uses_gtk_theme_environment_when_present(self) -> None:
         with (
-            patch("preferences.platform.system", return_value="Linux"),
+            patch("utils.preferences.platform.system", return_value="Linux"),
             patch.dict(os.environ, {"GTK_THEME": "Adwaita:light"}),
         ):
             self.assertEqual(system_theme(), "light")

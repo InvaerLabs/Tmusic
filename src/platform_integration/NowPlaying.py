@@ -106,7 +106,7 @@ class MacNowPlaying:
                 with autorelease_pool():
                     self._publish()
                     run_loop.runUntilDate_(
-                        api["NSDate"].dateWithTimeIntervalSinceNow_(0.5)
+                        api["NSDate"].dateWithTimeIntervalSinceNow_(1.0)
                     )
         finally:
             self._cleanup()

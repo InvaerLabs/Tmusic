@@ -9,3 +9,6 @@ dist/
 *spec
 PKGBUILD
 Errors.txt
+website/
+node_modules/
+release.md

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from threading import Event
 from typing import Callable
 
 import av
@@ -11,11 +12,20 @@ import yt_dlp
 
 ProgressCallback = Callable[[dict[str, object]], None]
 MP3_BITRATE = 320
+SUPPORTED_MP3_BITRATES = (192, 256, 320)
 
 
-def _convert_to_mp3(source: Path, destination: Path) -> None:
+def _convert_to_mp3(
+    source: Path,
+    destination: Path,
+    bitrate: int = MP3_BITRATE,
+) -> None:
+    if bitrate not in SUPPORTED_MP3_BITRATES:
+        raise ValueError(
+            f"MP3 bitrate must be one of {SUPPORTED_MP3_BITRATES} kbps."
+        )
     encoder = lameenc.Encoder()
-    encoder.set_bit_rate(MP3_BITRATE)
+    encoder.set_bit_rate(bitrate)
     encoder.set_in_sample_rate(44100)
     encoder.set_out_sample_rate(44100)
     encoder.set_channels(2)
@@ -56,20 +66,34 @@ def _convert_to_mp3(source: Path, destination: Path) -> None:
 
 
 class Downloader:
-    def __init__(self, download_folder: str | Path = "downloads") -> None:
+    def __init__(
+        self,
+        download_folder: str | Path = "downloads",
+        bitrate: int = MP3_BITRATE,
+    ) -> None:
+        if bitrate not in SUPPORTED_MP3_BITRATES:
+            raise ValueError(
+                f"MP3 bitrate must be one of {SUPPORTED_MP3_BITRATES} kbps."
+            )
         self.download_folder = Path(download_folder).expanduser()
+        self.bitrate = bitrate
         self.download_folder.mkdir(parents=True, exist_ok=True)
 
     def download_audio(
         self,
         url: str,
         progress_callback: ProgressCallback | None = None,
+        cancellation_event: Event | None = None,
     ) -> Path:
         clean_url = url.strip()
         if not clean_url:
             raise ValueError("Enter a video or playlist URL.")
+        if cancellation_event is not None and cancellation_event.is_set():
+            raise RuntimeError("Download cancelled.")
 
         def report_progress(data: dict[str, object]) -> None:
+            if cancellation_event is not None and cancellation_event.is_set():
+                raise yt_dlp.utils.DownloadCancelled("Download cancelled.")
             if progress_callback is not None:
                 progress_callback(data)
 
@@ -98,6 +122,8 @@ class Downloader:
                             downloaded_path = requested_downloads[0].get("filepath")
                     if not downloaded_path:
                         downloaded_path = str(downloader.prepare_filename(info))
+            except yt_dlp.utils.DownloadCancelled as error:
+                raise RuntimeError("Download cancelled.") from error
             except yt_dlp.utils.DownloadError as error:
                 message = str(error)
                 normalized_message = message.casefold().replace("’", "'")
@@ -113,14 +139,18 @@ class Downloader:
                     ) from error
                 raise RuntimeError(f"Download failed: {error}") from error
 
+            if cancellation_event is not None and cancellation_event.is_set():
+                raise RuntimeError("Download cancelled.")
             audio_path = Path(downloaded_path).expanduser()
             if not audio_path.is_file():
                 raise RuntimeError(
                     f"Download finished, but the audio file was not found: {audio_path}"
                 )
 
+            if progress_callback is not None:
+                progress_callback({"status": "Finished download. Converting…"})
             mp3_path = self.download_folder / f"{audio_path.stem}.mp3"
             converted_path = Path(temporary_directory) / f"{audio_path.stem}.mp3"
-            _convert_to_mp3(audio_path, converted_path)
+            _convert_to_mp3(audio_path, converted_path, self.bitrate)
             converted_path.replace(mp3_path)
             return mp3_path

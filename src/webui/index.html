@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#111313" />
+    <title>Tmusic — A Quite Place For Your Music</title>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="#" aria-label="Tmusic home">
+          <img id="brand-logo" class="brand-logo" alt="Tmusic skull with headphones logo" />
+          <span>Tmusic<small>A Quite Place For Your Music</small></span>
+        </a>
+        <div class="side-label">YOUR SPACE</div>
+        <nav class="side-nav">
+          <button class="nav-item active" data-view="library"><span class="nav-glyph" data-fa="compactDisc"></span> Library</button>
+          <button class="nav-item" data-view="download"><span class="nav-glyph" data-fa="download"></span> Downloader</button>
+          <button class="nav-item" data-action="settings"><span class="nav-glyph" data-fa="gear"></span> Settings</button>
+        </nav>
+        <div class="side-divider"></div>
+        <div class="side-label folder-heading">IN YOUR COLLECTION <button id="refresh-library" class="icon-tiny" title="Refresh library"><span data-fa="arrowsRotate"></span></button></div>
+        <div id="folder-chips" class="folder-chips"></div>
+        <button id="add-folder-sidebar" class="add-folder-link"><span data-fa="folderPlus"></span> Add a folder</button>
+        <div class="sidebar-bottom">
+          <div class="offline-pill"><i></i> OFFLINE FIRST</div>
+          <p>Every track lives on your device.<br />No accounts. Just music.</p>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar" style="cursor:move">
+          <div class="crumb"><span>YOUR SPACE</span><b>/</b><strong id="view-title">Library</strong></div>
+          <div class="top-actions">
+            <label class="search-wrap"><span data-fa="magnifyingGlass"></span><input id="search" type="search" placeholder="Find a track..." autocomplete="off" /><kbd>CTRL F</kbd></label>
+            <button class="icon-button window-button" data-action="minimize" title="Minimize to tray" aria-label="Minimize to tray"><span data-fa="minus"></span></button>
+            <button class="icon-button close-button" data-action="close" title="Close window" aria-label="Close window"><span data-fa="xmark"></span></button>
+          </div>
+        </header>
+
+        <section id="library-view" class="view-panel">
+          <div class="welcome-row">
+            <div><p class="eyebrow"><span class="live-dot"></span> YOUR PERSONAL FREQUENCY</p><h1>Find your <em>feeling.</em></h1><p class="welcome-copy">A little space for the songs that make your world.</p></div>
+            <div class="track-count"><span id="track-count">0</span><small>TRACKS<br />IN ORBIT</small></div>
+          </div>
+
+          <section class="player-card">
+            <div class="player-glow"></div>
+            <div class="artwork-box">
+              <div id="record" class="record">
+                <div class="record-grooves"></div>
+                <div class="record-label"><img id="record-cover" alt="" /><span class="record-center"></span></div>
+              </div>
+              <div id="cover-sleeve" class="cover-sleeve"><div class="sleeve-placeholder"><span data-fa="music"></span><small>NO COVER<br />JUST VIBES</small></div></div>
+              <span class="artwork-sparkle sparkle-one" data-fa="sparkles"></span><span class="artwork-sparkle sparkle-two" data-fa="star"></span>
+            </div>
+            <div class="player-info">
+              <div class="now-playing-label"><span class="equalizer"><i></i><i></i><i></i></span> NOW PLAYING</div>
+              <h2 id="track-title">Choose a track</h2>
+              <p id="track-artist">Your library is ready</p>
+              <p id="track-album" class="album-name"></p>
+              <div class="lyrics-strip">
+                <span class="lyric-quote" data-fa="quoteLeft"></span>
+                <p id="current-lyric">Pick a song and let the stars line up.</p>
+                <button id="open-lyrics" class="lyric-open" title="View lyrics" aria-label="View lyrics"><span data-fa="upRightFromSquare"></span></button>
+              </div>
+              <div class="timeline">
+                <input id="seek" type="range" min="0" max="1000" value="0" aria-label="Playback position" />
+                <div class="time-row"><span id="elapsed">00:00</span><span id="duration">--:--</span></div>
+              </div>
+              <div class="transport">
+                <button id="shuffle" class="transport-side" title="Shuffle" aria-label="Shuffle"><span data-fa="shuffle"></span></button>
+                <button id="previous" class="transport-main" title="Previous track" aria-label="Previous track"><span data-fa="backwardStep"></span></button>
+                <button id="play" class="play-button" title="Play" aria-label="Play"><span data-fa="play"></span></button>
+                <button id="next" class="transport-main" title="Next track" aria-label="Next track"><span data-fa="forwardStep"></span></button>
+                <button id="repeat" class="transport-side" title="Repeat" aria-label="Repeat"><span data-fa="repeat"></span></button>
+                <label class="volume-wrap" title="Volume"><span data-fa="volumeHigh"></span><input id="volume" type="range" min="0" max="1" step="0.01" value="0.72" /></label>
+              </div>
+            </div>
+          </section>
+
+          <section class="library-section">
+            <div class="section-head"><div><p class="eyebrow">THE GOOD STUFF</p><h2>Your library</h2></div><button id="add-folder-main" class="secondary-button"><span data-fa="plus"></span> Add music</button></div>
+            <div class="track-table-head"><span>TRACK</span><span>ARTIST</span><span>FORMAT</span><span></span></div>
+            <div id="track-list" class="track-list"></div>
+            <div id="empty-library" class="empty-state" hidden><span data-fa="compactDisc"></span><strong>No tracks found in this orbit</strong><p>Add a music folder to get started, or clear your search.</p><button id="empty-add-folder" class="secondary-button"><span data-fa="folderPlus"></span> Add music folder</button></div>
+          </section>
+        </section>
+
+        <section id="download-view" class="view-panel download-view" hidden>
+          <p class="eyebrow"><span class="live-dot"></span> BRING IT INTO ORBIT</p>
+          <h1>Make it <em>yours.</em></h1>
+          <p class="welcome-copy">Save audio for your offline library. Only download content you have permission to use.</p>
+          <div class="download-card">
+            <div class="download-icon"><span data-fa="cloudArrowDown"></span></div><div><h2>Audio downloader</h2><p>Paste a video or playlist link. Tmusic converts the audio to MP3 for your collection.</p></div>
+            <label class="field-label" for="download-url">VIDEO OR PLAYLIST LINK</label>
+            <div class="url-row"><input id="download-url" type="url" placeholder="https://…" /><button id="start-download" class="primary-button">Start download <span data-fa="arrowUpRightFromSquare"></span></button></div>
+            <div class="download-options">
+              <label>MP3 QUALITY <select id="bitrate"><option value="192">192 kbps · smaller</option><option value="256">256 kbps · balanced</option><option value="320">320 kbps · highest</option></select></label>
+              <div class="download-destination"><span>SAVING TO</span><button id="choose-download-folder" class="folder-path"></button></div>
+            </div>
+            <div id="download-progress-wrap" class="download-progress-wrap" hidden><div class="download-progress-top"><span id="download-progress-label">Preparing download…</span><button id="cancel-download" class="text-button">Cancel</button></div><div class="progress-track"><div id="download-progress" class="progress-fill"></div></div></div>
+            <div id="download-message" class="download-message" aria-live="polite"></div>
+          </div>
+          <div class="download-note"><span data-fa="circleInfo"></span><p><strong>Good to know</strong><br />Some sources may require sign-in or verification. Tmusic can't complete that step for you; use the source's official options instead.</p></div>
+        </section>
+        <footer class="footer"><span>Tmusic <b>·</b> V3.0</span><span>MADE FOR THE LONG WAY HOME <i data-fa="sparkles"></i></span></footer>
+      </main>
+    </div>
+
+    <div id="settings-modal" class="modal-backdrop" hidden>
+      <section class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <header class="modal-header"><div><p class="eyebrow">MAKE YOURSELF AT HOME</p><h2 id="settings-title">Settings</h2></div><button class="icon-button" data-action="close-modal" aria-label="Close settings"><span data-fa="xmark"></span></button></header>
+        <div class="settings-grid">
+          <div class="setting-card"><label for="theme-select">LOOK & FEEL</label><select id="theme-select"><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option><option value="stars">Stars</option></select><p>Make Tmusic feel like yours.</p></div>
+          <div class="setting-card"><label>MUSIC FOLDERS</label><div id="settings-folders" class="settings-folders"></div><button id="settings-add-folder" class="text-button"><span data-fa="folderPlus"></span> Add folder</button><p>Artwork is always shown in the player.</p></div>
+          <div class="setting-card"><label>ABOUT TMUSIC</label><p>A local music player with lyrics, downloads, and desktop media controls.</p><span class="about-version">Version 3.0</span></div>
+          <div class="setting-card update-card"><label>UPDATES</label><p id="update-result">Check GitHub for the latest Tmusic release.</p><button id="check-updates" class="secondary-button"><span data-fa="arrowsRotate"></span> Check for updates</button><button id="open-release" class="text-button" hidden>Open release page <span data-fa="arrowUpRightFromSquare"></span></button></div>
+        </div>
+        <footer class="modal-footer"><span>Everything stays on this device.</span><button class="primary-button" data-action="close-modal">All set</button></footer>
+      </section>
+    </div>
+
+    <div id="lyrics-modal" class="modal-backdrop" hidden>
+      <section class="modal lyrics-modal" role="dialog" aria-modal="true">
+        <header class="modal-header"><div><p class="eyebrow">WORDS IN THE AIR</p><h2 id="lyrics-title">Lyrics</h2></div><button class="icon-button" data-action="close-modal" aria-label="Close lyrics"><span data-fa="xmark"></span></button></header>
+        <div id="lyrics-list" class="lyrics-list"></div>
+      </section>
+    </div>
+
+    <div id="editor-modal" class="modal-backdrop" hidden>
+      <section class="modal editor-modal" role="dialog" aria-modal="true" aria-labelledby="editor-heading">
+        <header class="modal-header"><div><p class="eyebrow">A LITTLE PERSONAL TOUCH</p><h2 id="editor-heading">Edit track</h2></div><button class="icon-button" data-action="close-editor" aria-label="Close editor"><span data-fa="xmark"></span></button></header>
+        <div class="editor-form">
+          <label>TRACK TITLE<input id="edit-title" type="text" /></label>
+          <label>ARTIST<input id="edit-artist" type="text" /></label>
+          <div class="cover-edit-row"><img id="edit-cover-preview" alt="Current cover artwork" /><div><strong>Cover artwork</strong><p id="edit-cover-name">Keep current artwork</p><button id="choose-cover" class="text-button"><span data-fa="image"></span> Choose image</button></div></div>
+          <label>LYRICS <small>Timed .LRC or plain text</small><textarea id="edit-lyrics" rows="8"></textarea></label>
+          <button id="import-lyrics" class="text-button"><span data-fa="fileArrowUp"></span> Import .LRC / .TXT</button>
+        </div>
+        <footer class="modal-footer"><span id="editor-status">Changes are not saved yet.</span><div><button class="secondary-button" data-action="close-editor">Cancel</button><button id="save-editor" class="primary-button"><span data-fa="floppyDisk"></span> Save changes</button></div></footer>
+      </section>
+    </div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

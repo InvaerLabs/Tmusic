@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from mutagen.id3 import ID3
 
-from player import (
+from core.player import (
     LyricLine,
     MusicPlayer,
     discover_tracks,
@@ -126,7 +126,7 @@ class LibraryHelpersTests(unittest.TestCase):
                 getall=lambda _key: [SimpleNamespace(data=b"cover-image")]
             )
             with patch(
-                "player.MutagenFile",
+                "core.player.MutagenFile",
                 return_value=SimpleNamespace(tags=tags),
             ):
                 self.assertEqual(read_cover_art(track), b"cover-image")
@@ -135,7 +135,7 @@ class LibraryHelpersTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             track = Path(temporary_directory) / "track.flac"
             track.touch()
-            with patch("player.ID3") as id3:
+            with patch("core.player.ID3") as id3:
                 self.assertEqual(read_track_lyrics(track), ([], False))
             id3.assert_not_called()
 
@@ -143,7 +143,7 @@ class LibraryHelpersTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             track = Path(temporary_directory) / "track.mp3"
             track.touch()
-            with patch("player.ID3") as id3:
+            with patch("core.player.ID3") as id3:
                 with self.assertRaises(ValueError):
                     save_mp3_metadata(track, title="...", artist="", lrc_text="")
             id3.assert_not_called()
@@ -152,24 +152,24 @@ class LibraryHelpersTests(unittest.TestCase):
 class MusicPlayerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.mocks = [
-            patch("player.pygame.mixer.init"),
-            patch("player.pygame.mixer.music.set_volume"),
-            patch("player.pygame.mixer.music.load"),
-            patch("player.pygame.mixer.music.play"),
-            patch("player.pygame.mixer.music.unpause"),
-            patch("player.pygame.mixer.music.pause"),
-            patch("player.pygame.mixer.music.stop"),
-            patch("player.pygame.mixer.music.get_pos", return_value=0),
-            patch("player.pygame.mixer.music.get_busy", return_value=True),
+            patch("core.player.pygame.mixer.init"),
+            patch("core.player.pygame.mixer.music.set_volume"),
+            patch("core.player.pygame.mixer.music.load"),
+            patch("core.player.pygame.mixer.music.play"),
+            patch("core.player.pygame.mixer.music.unpause"),
+            patch("core.player.pygame.mixer.music.pause"),
+            patch("core.player.pygame.mixer.music.stop"),
+            patch("core.player.pygame.mixer.music.get_pos", return_value=0),
+            patch("core.player.pygame.mixer.music.get_busy", return_value=True),
             patch(
-                "player.MutagenFile",
+                "core.player.MutagenFile",
                 side_effect=lambda path, easy=False: SimpleNamespace(
                     info=None if easy or not path else SimpleNamespace(length=120),
                     tags=None,
                 ),
             ),
             patch(
-                "player.read_track_lyrics",
+                "core.player.read_track_lyrics",
                 side_effect=lambda path: (
                     read_track_lyrics(path) if path.exists() else ([], False)
                 ),
@@ -195,7 +195,7 @@ class MusicPlayerTests(unittest.TestCase):
             )
             self.player.set_library([track])
             with patch(
-                "player.MutagenFile",
+                "core.player.MutagenFile",
                 side_effect=[
                     SimpleNamespace(info=SimpleNamespace(length=60), tags={}),
                     SimpleNamespace(
@@ -216,7 +216,7 @@ class MusicPlayerTests(unittest.TestCase):
     def test_shuffle_avoids_current_track_and_previous_uses_history(self) -> None:
         self.player.play_index(0)
         self.player.shuffle = True
-        with patch("player.random.shuffle", side_effect=lambda tracks: None):
+        with patch("core.player.random.shuffle", side_effect=lambda tracks: None):
             self.player.next_track()
 
         self.assertEqual(self.player.current_index, 2)

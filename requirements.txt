@@ -1,6 +1,7 @@
-# GUI & Image Processing
+# Tray Icon & Image Processing
 Pillow>=10.0.0
 pystray>=0.19.5
+pywebview>=5.0.0
 
 # YouTube Media Downloader
 yt-dlp>=2023.0.0
@@ -18,4 +19,4 @@ winsdk>=1.0.0b10; sys_platform == "win32"
 pyobjc-framework-MediaPlayer>=10.0.0; sys_platform == "darwin"
 
 # Packaging & Distribution
-pyinstaller>=5.0.0
+nuitka>=4.2

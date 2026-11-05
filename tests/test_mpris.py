@@ -4,10 +4,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from player import LyricLine
+from core.player import LyricLine
 
 try:
-    from MPRIS import MediaPlayerMPRIS
+    from platform_integration.MPRIS import MediaPlayerMPRIS
 except ImportError:
     MediaPlayerMPRIS = None
 

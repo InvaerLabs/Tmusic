@@ -2,16 +2,25 @@
 
 ## Version 3.0
 
-- Improved MPRIS lifecycle and deferred seek notifications until the player
-  applies a requested seek.
-- Added platform-specific build imports so Linux, Windows, and macOS binaries
-  include only their native media-control integration.
-- Added persistent library-folder management, a cover-art visibility setting,
-  an About section, and a GitHub release update check.
-- Added embedded album artwork with a playback-only spinning-record treatment
-  and refreshed the Stars theme with softer, playful colors.
-- Kept decoded cover artwork small and limited to the currently playing track
-  to reduce avoidable memory use.
+Version 3.0 moves the interface to a locally built HTML/Tailwind frontend and
+keeps playback running in a background core while the WebView opens on demand.
+
+- Added a standalone background playback core with authenticated local IPC.
+  Closing the UI releases its WebView process without stopping playback; tray
+  actions can reopen the UI with the current live player state.
+- Added native MPRIS, Windows SMTC, and macOS Now Playing support alongside
+  tray controls, with platform-specific media integrations in release builds.
+- Reworked the player UI with embedded cover art, a spinning record, the Stars
+  theme, library search, lyrics, and an MP3 metadata and cover editor.
+- Added library-folder settings, update checks against GitHub releases, and
+  theme and download preferences.
+- Added manual 192, 256, and 320 kbps MP3 bitrate choices and a conversion
+  progress status in the downloader.
+- Added confirmation before closing the UI cancels an active download.
+- Switched release builds to Nuitka standalone distributions with AppImage,
+  Inno Setup, and DMG packaging for Linux, Windows, and macOS.
+- Reduced repeated UI polling and unchanged payload work to lower avoidable
+  resource use. Actual memory consumption varies by platform and library.
 
 ## Version 2.0
 

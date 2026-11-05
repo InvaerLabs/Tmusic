@@ -67,6 +67,24 @@ def save_download_directory(directory: Path) -> None:
     _write_settings(settings)
 
 
+MP3_BITRATES = (192, 256, 320)
+
+
+def load_mp3_bitrate() -> int:
+    value = _read_settings().get("mp3_bitrate", 320)
+    if not isinstance(value, int) or value not in MP3_BITRATES:
+        raise RuntimeError(f"Invalid MP3 bitrate setting: {value!r}")
+    return value
+
+
+def save_mp3_bitrate(bitrate: int) -> None:
+    if bitrate not in MP3_BITRATES:
+        raise ValueError(f"MP3 bitrate must be one of {MP3_BITRATES}.")
+    settings = _read_settings()
+    settings["mp3_bitrate"] = bitrate
+    _write_settings(settings)
+
+
 def load_music_folders() -> list[Path] | None:
     folders = _read_settings().get("music_folders")
     if folders is None:

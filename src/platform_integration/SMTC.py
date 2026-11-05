@@ -99,7 +99,7 @@ class WindowsMediaControls:
 
         try:
             self._publish(force=True)
-            while not self._stop.wait(0.5):
+            while not self._stop.wait(1.0):
                 self._publish()
         finally:
             self._cleanup()
