@@ -95,7 +95,6 @@ jobs:
         run: choco install innosetup --yes --no-progress
         shell: pwsh
 
-      # --- FIX FOR MACOS: Install create-dmg tool ---
       - name: Install create-dmg (macOS)
         if: matrix.platform == 'macOS'
         run: brew install create-dmg
@@ -109,6 +108,7 @@ jobs:
             --mode=app-dist \
             --output-dir=build \
             --output-filename=Tmusic \
+            --disable-plugin=pywebview \
             --include-data-dir=src/webui/dist=webui/dist \
             --include-data-files=Logo.jpeg=Logo.jpeg \
             --include-package=pystray \
@@ -117,7 +117,6 @@ jobs:
             --include-module=platform_integration.MPRIS \
             --nofollow-import-to=platform_integration.SMTC \
             --nofollow-import-to=platform_integration.NowPlaying \
-            --nofollow-import-to=webview.platforms.android \
             --product-name=Tmusic \
             --company-name="Invaer Labs" \
             --product-version=3.0 \
@@ -138,6 +137,7 @@ jobs:
             --output-dir=build `
             --output-folder-name=Tmusic.dist `
             --output-filename=Tmusic `
+            --disable-plugin=pywebview `
             --windows-console-mode=disable `
             --include-data-dir=src/webui/dist=webui/dist `
             --include-data-files=Logo.jpeg=Logo.jpeg `
@@ -148,7 +148,6 @@ jobs:
             --include-package=winsdk `
             --nofollow-import-to=platform_integration.MPRIS `
             --nofollow-import-to=platform_integration.NowPlaying `
-            --nofollow-import-to=webview.platforms.android `
             --assume-yes-for-downloads `
             --jobs=2 `
             src/main.pyw
@@ -176,6 +175,7 @@ jobs:
             --mode=app-dist \
             --output-dir=build \
             --output-filename=Tmusic \
+            --disable-plugin=pywebview \
             --macos-app-name=Tmusic \
             --include-data-dir=src/webui/dist=webui/dist \
             --include-data-files=Logo.jpeg=Logo.jpeg \
@@ -188,7 +188,6 @@ jobs:
             --include-module=MediaPlayer \
             --nofollow-import-to=platform_integration.MPRIS \
             --nofollow-import-to=platform_integration.SMTC \
-            --nofollow-import-to=webview.platforms.android \
             --macos-create-installer \
             --macos-installer-output=release/Tmusic-macOS-${{ matrix.arch }}.dmg \
             --assume-yes-for-downloads \
