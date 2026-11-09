@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 2.1
+
+- Added Lameenc and pyav to convert mp3 without requiring ffmpeg
+
 ## Version 2.0
 
 Tmusic 2.0 expands the original v1 player into a cross-platform music player
